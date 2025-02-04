@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>5×5 4マス揃えゲーム</title>
+    <style>
+        body { text-align: center; font-family: Arial, sans-serif; }
+        .container { display: flex; flex-direction: column; align-items: center; }
+        .board { 
+            display: grid; 
+            grid-template-columns: repeat(5, 80px); 
+            grid-template-rows: repeat(5, 80px);
+            gap: 5px; 
+            margin: 20px;
+        }
+        .cell { 
+            width: 80px; height: 80px; 
+            font-size: 2em; text-align: center; 
+            line-height: 80px; 
+            border: 2px solid black; 
+            cursor: pointer; 
+            background-color: white;
+        }
+        .win { background-color: lightcoral; }
+        .special { background-color: lightblue; } /* 消えないコマ */
+        button { 
+            margin: 5px; padding: 10px 20px; 
+            font-size: 16px; cursor: pointer; 
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>5×5 4マス揃えゲーム</h1>
+        
+        <p>ゲームモードを選択してください：</p>
+        <button onclick="setGameMode('pvp')">プレイヤー vs プレイヤー</button>
+        <button onclick="setGameMode('pvc')">プレイヤー vs CPU</button>
+        
+        <p>現在のモード: <span id="gameModeText">PvP</span></p>
+        
+        <div class="board"></div>
+        <p id="message"></p>
+        <button onclick="resetGame()">リセット</button>
+        <button onclick="useSpecialPiece()" id="specialButton">消えないコマを使う（1回のみ）</button>
+    </div>
+    
+    <script>
+        const board = document.querySelector(".board");
+        const message = document.getElementById("message");
+        const specialButton = document.getElementById("specialButton");
+        const gameModeText = document.getElementById("gameModeText");
+
+        let cells = Array(25).fill(null);
+        let turnCount = { "〇": 0, "✕": 0 };
+        let currentPlayer = "〇";
+        let history = [];
+        let gameOver = false;
+        let specialUsed = { "〇": false, "✕": false };
+        let gameMode = "pvp"; // デフォルトは PvP
+
+        function setGameMode(mode) {
+            gameMode = mode;
+            gameModeText.textContent = mode === "pvp" ? "PvP" : "PvC";
+            resetGame();
+        }
+
+        function initializeBoard() {
+            for (let i = 0; i < 25; i++) {
+                const cell = document.createElement("div");
+                cell.classList.add("cell");
+                cell.dataset.index = i;
+                cell.addEventListener("click", handleMove);
+                board.appendChild(cell);
+            }
+        }
+
+        function handleMove(event) {
+            if (gameOver || (gameMode === "pvc" && currentPlayer === "✕")) return;
+
+            const index = event.target.dataset.index;
+            if (cells[index] !== null) return;
+
+            placePiece(index, currentPlayer);
+            if (gameOver) return;
+
+            if (gameMode === "pvc") {
+                setTimeout(cpuMove, 500);
+            }
+        }
+
+        function placePiece(index, player) {
+            let isSpecial = specialUsed[player];
+            cells[index] = { player, special: isSpecial };
+
+            const cell = document.querySelector(`[data-index="${index}"]`);
+            cell.textContent = player;
+            if (isSpecial) cell.classList.add("special");
+
+            turnCount[player]++;
+            history.push({ index, player, turn: turnCount[player], special: isSpecial });
+
+            let winPattern = checkWin(player);
+            if (winPattern) {
+                message.textContent = `${player}の勝ち！`;
+                highlightWin(winPattern);
+                gameOver = true;
+                return;
+            }
+
+            history = history.filter(entry => {
+                if (!entry.special && turnCount[entry.player] - entry.turn >= 4) {
+                    cells[entry.index] = null;
+                    document.querySelector(`[data-index="${entry.index}"]`).textContent = "";
+                    return false;
+                }
+                return true;
+            });
+
+            specialUsed[player] = false;
+            currentPlayer = currentPlayer === "〇" ? "✕" : "〇";
+            updateSpecialButton();
+        }
+
+        function cpuMove() {
+            if (gameOver) return;
+
+            let bestMove = findBestMove();
+            if (bestMove === null) return;
+
+            placePiece(bestMove, "✕");
+        }
+
+        function findBestMove() {
+            let availableCells = cells.map((c, i) => (c === null ? i : null)).filter(i => i !== null);
+
+            // CPUが勝てる手を探す
+            for (let i of availableCells) {
+                cells[i] = { player: "✕" };
+                if (checkWin("✕")) {
+                    cells[i] = null;
+                    return i;
+                }
+                cells[i] = null;
+            }
+
+            // プレイヤーが勝ちそうならブロックする
+            for (let i of availableCells) {
+                cells[i] = { player: "〇" };
+                if (checkWin("〇")) {
+                    cells[i] = null;
+                    return i;
+                }
+                cells[i] = null;
+            }
+
+            // 中央（12）を取る
+            if (availableCells.includes(12)) return 12;
+
+            // 角を取る
+            const corners = [0, 4, 20, 24];
+            for (let i of corners) {
+                if (availableCells.includes(i)) return i;
+            }
+
+            // ランダムな手
+            return availableCells.length > 0 ? availableCells[Math.floor(Math.random() * availableCells.length)] : null;
+        }
+
+        function checkWin(player) {
+            const winPatterns = [];
+
+            // 横の勝利パターン
+            for (let i = 0; i < 5; i++) {
+                for (let j = 0; j < 2; j++) {
+                    winPatterns.push([i * 5 + j, i * 5 + j + 1, i * 5 + j + 2, i * 5 + j + 3]);
+                }
+            }
+
+            // 縦の勝利パターン
+            for (let i = 0; i < 5; i++) {
+                for (let j = 0; j < 2; j++) {
+                    winPatterns.push([j * 5 + i, (j + 1) * 5 + i, (j + 2) * 5 + i, (j + 3) * 5 + i]);
+                }
+            }
+
+            // 斜めの勝利パターン
+            for (let i = 0; i < 2; i++) {
+                for (let j = 0; j < 2; j++) {
+                    winPatterns.push([i * 5 + j, (i + 1) * 5 + j + 1, (i + 2) * 5 + j + 2, (i + 3) * 5 + j + 3]);
+                    winPatterns.push([(i + 3) * 5 + j, (i + 2) * 5 + j + 1, (i + 1) * 5 + j + 2, i * 5 + j + 3]);
+                }
+            }
+
+            return winPatterns.find(pattern => pattern.every(i => cells[i] && cells[i].player === player)) || null;
+        }
+
+        function highlightWin(pattern) {
+            pattern.forEach(i => document.querySelector(`[data-index="${i}"]`).classList.add("win"));
+        }
+
+        function resetGame() {
+            cells.fill(null);
+            turnCount = { "〇": 0, "✕": 0 };
+            history = [];
+            currentPlayer = "〇";
+            gameOver = false;
+            specialUsed = { "〇": false, "✕": false };
+            message.textContent = "";
+            updateSpecialButton();
+            document.querySelectorAll(".cell").forEach(cell => {
+                cell.textContent = "";
+                cell.classList.remove("win", "special");
+            });
+
+            if (gameMode === "pvc" && currentPlayer === "✕") {
+                setTimeout(cpuMove, 500);
+            }
+        }
+
+        function useSpecialPiece() {
+            if (specialUsed[currentPlayer]) return;
+            specialUsed[currentPlayer] = true;
+            updateSpecialButton();
+        }
+
+        function updateSpecialButton() {
+            specialButton.disabled = specialUsed[currentPlayer] || gameOver;
+        }
+
+        initializeBoard();
+    </script>
+</body>
+</html>
